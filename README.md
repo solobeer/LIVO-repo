@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # FAST-LIVO
 
 ## Fast and Tightly-coupled Sparse-Direct LiDAR-Inertial-Visual Odometry
@@ -142,3 +143,7 @@ Thanks [Jiarong Lin](https://github.com/ziv-lin) for the help in the experiments
 The source code of this package is released under [**GPLv2**](http://www.gnu.org/licenses/) license. We only allow it free for **academic usage**. For commercial use, please contact Dr. Fu Zhang [fuzhang@hku.hk](mailto:fuzhang@hku.hk).
 
 For any technical issues, please contact me via email [zhengcr@connect.hku.hk](mailto:zhengcr@connect.hku.hk).
+=======
+# LIVO-repo
+fast-livo 注释
+>>>>>>> 5c04a77125d37a187a758e6d51709cf8f60a96cb
