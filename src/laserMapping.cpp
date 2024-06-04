@@ -1321,9 +1321,11 @@ int main(int argc, char** argv)
             int size = feats_undistort->points.size();
         }
         fast_lio_is_ready = true;
+        //是否完成初始化
         flg_EKF_inited = (LidarMeasures.lidar_beg_time - first_lidar_time) < INIT_TIME ? \
                         false : true;
 
+        //相机与IMU数据
         if (! LidarMeasures.is_lidar_end) 
         {
             cout<<"[ VIO ]: Raw feature num: "<<pcl_wait_pub->points.size() << "." << endl;
@@ -1350,6 +1352,12 @@ int main(int argc, char** argv)
                 //                         &laserCloudWorld->points[i]);
                 // }
 
+                //先用IMU预积分更新一下状态，pcl_wait_pub是点云数据，
+                //视觉是从地图点里抽FOV里面的点，当然会作检查，取出遮挡点、深度不连续点，然后在于当前img作光度误差
+                //1 先是addFromSparseMap choose %d points from sub_sparse_map，在sub_sparse_map中
+                //2 是addSparseMap，Add %d 3D points 这里不是很懂
+                //3 ComputeJ里面：UpdateState迭代更新，最后一次更新updateFrameState
+                //4 addObservation
                 lidar_selector->detect(LidarMeasures.measures.back().img, pcl_wait_pub);
                 // int size = lidar_selector->map_cur_frame_.size();
                 int size_sub = lidar_selector->sub_map_cur_frame_.size();
@@ -1395,7 +1403,9 @@ int main(int argc, char** argv)
                 fout_out << setw(20) << LidarMeasures.last_update_time - first_lidar_time << " " << euler_cur.transpose()*57.3 << " " << state.pos_end.transpose() << " " << state.vel_end.transpose() \
                 <<" "<<state.bias_g.transpose()<<" "<<state.bias_a.transpose()<<" "<<state.gravity.transpose()<<" "<<feats_undistort->points.size()<<endl;
             }
+            //相机处理好了，下一轮
             continue;
+
         }
 
         /*** Segment the map in lidar FOV ***/
@@ -1449,8 +1459,10 @@ int main(int argc, char** argv)
         res_last.resize(feats_down_size, 1000.0);
         
         t1 = omp_get_wtime();
+        //要用雷达数据
         if (lidar_en)
         {
+            //欧拉角
             euler_cur = RotMtoEuler(state.rot_end);
             #ifdef USE_IKFOM
             //state_ikfom fout_state = kf.get_x();

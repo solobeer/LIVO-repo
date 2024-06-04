@@ -920,6 +920,8 @@ void LidarSelector::updateFrameState(StatesGroup state)
     new_frame_->T_f_w_ = SE3(Rcw, Pcw);
 }
 
+
+//这里有40个像素判断，或者运动幅度大，加入地图，要加入pose。
 void LidarSelector::addObservation(cv::Mat img)
 {
     int total_points = sub_sparse_map->index.size();
