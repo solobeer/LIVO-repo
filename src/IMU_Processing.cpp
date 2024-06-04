@@ -146,6 +146,7 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
   last_imu_ = meas.imu.back();
 }
 #else
+//计算静止时IMU参数
 void ImuProcess::IMU_init(const MeasureGroup &meas, StatesGroup &state_inout, int &N)
 {
   /** 1. initializing the gravity, gyro bias, acc and gyro covariance
@@ -173,9 +174,11 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, StatesGroup &state_inout, in
     cur_acc << imu_acc.x, imu_acc.y, imu_acc.z;
     cur_gyr << gyr_acc.x, gyr_acc.y, gyr_acc.z;
 
+    //其实就是算每进来一个Imu后的平均值
     mean_acc      += (cur_acc - mean_acc) / N;
     mean_gyr      += (cur_gyr - mean_gyr) / N;
 
+    //方差计算
     cov_acc = cov_acc * (N - 1.0) / N + (cur_acc - mean_acc).cwiseProduct(cur_acc - mean_acc) * (N - 1.0) / (N * N);
     cov_gyr = cov_gyr * (N - 1.0) / N + (cur_gyr - mean_gyr).cwiseProduct(cur_gyr - mean_gyr) * (N - 1.0) / (N * N);
 
@@ -184,9 +187,12 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, StatesGroup &state_inout, in
     N ++;
   }
 
+  //重力加速度
   state_inout.gravity = - mean_acc / mean_acc.norm() * G_m_s2;
   
+  //姿态，初始为单位阵
   state_inout.rot_end = Eye3d; // Exp(mean_acc.cross(V3D(0, 0, -1 / scale_gravity)));
+  //静止时的陀螺仪0偏
   state_inout.bias_g  = mean_gyr;
 
   last_imu_ = meas.imu.back();
@@ -551,6 +557,7 @@ void ImuProcess::Process(const LidarMeasureGroup &lidar_meas, StatesGroup &stat,
   {
     if(meas.imu.empty()) {return;};
     /// The very first lidar frame
+    //init_iter_num = 1
     IMU_init(meas, stat, init_iter_num);
 
     imu_need_init_ = true;
@@ -837,6 +844,7 @@ void ImuProcess::Process2(LidarMeasureGroup &lidar_meas, StatesGroup &stat, Poin
     
     last_imu_   = meas.imu.back();
 
+    //如果静止时收到了超过200个IMU数据
     if (init_iter_num > MAX_INI_COUNT)
     {
       cov_acc *= pow(G_m_s2 / mean_acc.norm(), 2);

@@ -1052,10 +1052,13 @@ void LidarSelector::detect(cv::Mat img, PointCloudXYZI::Ptr pg)
     cv::cvtColor(img,img,CV_BGR2GRAY);
 
     new_frame_.reset(new Frame(cam, img.clone()));
+    //用IMU预积分更新
     updateFrameState(*state);
 
+    //第一次 pg-点云
     if(stage_ == STAGE_FIRST_FRAME && pg->size()>10)
     {
+        //关键帧
         new_frame_->setKeyframe();
         stage_ = STAGE_DEFAULT_FRAME;
     }

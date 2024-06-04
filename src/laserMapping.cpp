@@ -436,6 +436,7 @@ void standard_pcl_cbk(const sensor_msgs::PointCloud2::ConstPtr &msg)
 
 void livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg) 
 {
+    //数据加锁，说明IMU Lidar camera同时只有一个数据能放buffer
     mtx_buffer.lock();
     if (msg->header.stamp.toSec() < last_timestamp_lidar)
     {
@@ -444,11 +445,14 @@ void livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg)
     }
     printf("[ INFO ]: get point cloud at time: %.6f.\n", msg->header.stamp.toSec());
     PointCloudXYZI::Ptr ptr(new PointCloudXYZI());
+    // 把livox数据转成pcl点云
     p_pre->process(msg, ptr);
     lidar_buffer.push_back(ptr);
+    //把时间也放入time_buffer
     time_buffer.push_back(msg->header.stamp.toSec());
     last_timestamp_lidar = msg->header.stamp.toSec();
 
+    //释放锁，唤醒线程
     mtx_buffer.unlock();
     sig_buffer.notify_all();
 }
@@ -460,6 +464,7 @@ void imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in)
     sensor_msgs::Imu::Ptr msg(new sensor_msgs::Imu(*msg_in));
     
     double timestamp = msg->header.stamp.toSec();
+    //数据加锁
     mtx_buffer.lock();
 
     if (timestamp < last_timestamp_imu)
@@ -474,6 +479,7 @@ void imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in)
     imu_buffer.push_back(msg);
     // cout<<"got imu: "<<timestamp<<" imu size "<<imu_buffer.size()<<endl;
     mtx_buffer.unlock();
+    //唤醒wait线程
     sig_buffer.notify_all();
 }
 
@@ -503,6 +509,7 @@ void img_cbk(const sensor_msgs::ImageConstPtr& msg)
     mtx_buffer.lock();
     // cout<<"Lidar_buff.size()"<<lidar_buffer.size()<<endl;
     // cout<<"Imu_buffer.size()"<<imu_buffer.size()<<endl;
+    //转换为mat格式
     img_buffer.push_back(getImageFromMsg(msg));
     img_time_buffer.push_back(msg->header.stamp.toSec());
     last_timestamp_img = msg->header.stamp.toSec();
@@ -1287,6 +1294,7 @@ int main(int argc, char** argv)
         state_point = kf.get_x();
         pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
         #else
+        //开始第一次是初始化IMU，后面是点云去畸变
         p_imu->Process2(LidarMeasures, state, feats_undistort); 
         state_propagat = state;
         #endif
@@ -1325,6 +1333,7 @@ int main(int argc, char** argv)
             }
             // cout<<"cur state:"<<state.rot_end<<endl;
             if (img_en) {
+                //rotation matrix to euler angle
                 euler_cur = RotMtoEuler(state.rot_end);
                 fout_pre << setw(20) << LidarMeasures.last_update_time - first_lidar_time << " " << euler_cur.transpose()*57.3 << " " << state.pos_end.transpose() << " " << state.vel_end.transpose() \
                                 <<" "<<state.bias_g.transpose()<<" "<<state.bias_a.transpose()<<" "<<state.gravity.transpose()<< endl;
