@@ -1354,7 +1354,8 @@ int main(int argc, char** argv)
 
                 //先用IMU预积分更新一下状态，pcl_wait_pub是点云数据，
                 //视觉是从地图点里抽FOV里面的点，当然会作检查，取出遮挡点、深度不连续点，然后在于当前img作光度误差
-                //1 先是addFromSparseMap choose %d points from sub_sparse_map，在sub_sparse_map中
+                //1 先是addFromSparseMap choose %d points from sub_sparse_map，在sub_sparse_map中，利用最近雷达扫描
+                //从地图中选取子图。
                 //2 是addSparseMap，Add %d 3D points 这里不是很懂
                 //3 ComputeJ里面：UpdateState迭代更新，最后一次更新updateFrameState
                 //4 addObservation

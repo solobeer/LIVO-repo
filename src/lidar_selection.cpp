@@ -145,6 +145,8 @@ void LidarSelector::getpatch(cv::Mat img, V2D pc, float* patch_tmp, int level)
     }
 }
 
+//把雷达点加入视觉地图？
+//把一个grid内最高梯度的点加入视觉地图
 void LidarSelector::addSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg) 
 {
     // double t0 = omp_get_wtime();
@@ -156,9 +158,11 @@ void LidarSelector::addSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
     for (int i=0; i<pg->size(); i++) 
     {
         V3D pt(pg->points[i].x, pg->points[i].y, pg->points[i].z);
+        //相机坐标系
         V2D pc(new_frame_->w2c(pt));
         if(new_frame_->cam_->isInFrame(pc.cast<int>(), (patch_size_half+1)*8)) // 20px is the patch size in the matcher
         {
+            //grid size 40 
             int index = static_cast<int>(pc[0]/grid_size)*grid_n_height + static_cast<int>(pc[1]/grid_size);
             // float cur_value = CheckGoodPoints(img, pc);
             float cur_value = vk::shiTomasiScore(img, pc[0], pc[1]);
@@ -210,6 +214,7 @@ void LidarSelector::addSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
     // printf("B3. : %.6lf \n", t_b3);
 }
 
+//feat_map是全局地图
 void LidarSelector::AddPoint(PointPtr pt_new)
 {
     V3D pt_w(pt_new->pos_[0], pt_new->pos_[1], pt_new->pos_[2]);
@@ -349,7 +354,7 @@ void LidarSelector::createPatchFromPatchWithBorder(float* patch_with_border, flo
       ref_patch_ptr[x] = ref_patch_border_ptr[x];
   }
 }
-
+//pg难道是最近的雷达点，或者简称为上一帧雷达点。
 void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
 {
     if(feat_map.size()<=0) return;
@@ -383,6 +388,8 @@ void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
     // printf("A0. initial depthmap: %.6lf \n", omp_get_wtime() - ts0);
     // double ts1 = omp_get_wtime();
 
+    //pg_down是不是就是点云地图呢
+
     for(int i=0; i<pg_down->size(); i++)
     {
         // Transform Point to world coordinate
@@ -391,21 +398,26 @@ void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
         // Determine the key of hash table      
         for(int j=0; j<3; j++)
         {
+            //voxel_size是0.5
+            // 扩大了
             loc_xyz[j] = floor(pt_w[j] / voxel_size);
         }
         VOXEL_KEY position(loc_xyz[0], loc_xyz[1], loc_xyz[2]);
 
+        //相当于从地图里找点的操作
         auto iter = sub_feat_map.find(position);
         if(iter == sub_feat_map.end())
         {
             sub_feat_map[position] = 1.0;
         }
                     
+        //把世界坐标系的点换成相机坐标系的点
         V3D pt_c(new_frame_->w2f(pt_w));
 
         V2D px;
         if(pt_c[2] > 0)
         {
+            //变成像素坐标点
             px[0] = fx * pt_c[0]/pt_c[2] + cx;
             px[1] = fy * pt_c[1]/pt_c[2] + cy;
 
@@ -1067,6 +1079,7 @@ void LidarSelector::detect(cv::Mat img, PointCloudXYZI::Ptr pg)
 
     double t1 = omp_get_wtime();
 
+    //利用pg最近雷达扫描点，获取视觉子图
     addFromSparseMap(img, pg);
 
     double t3 = omp_get_wtime();
@@ -1076,11 +1089,11 @@ void LidarSelector::detect(cv::Mat img, PointCloudXYZI::Ptr pg)
     double t4 = omp_get_wtime();
     
     // computeH = ekf_time = 0.0;
-    
+    //更新状态
     ComputeJ(img);
 
     double t5 = omp_get_wtime();
-
+    //用视觉点更新
     addObservation(img);
     
     double t2 = omp_get_wtime();
