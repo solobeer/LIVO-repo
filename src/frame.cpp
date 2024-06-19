@@ -51,7 +51,9 @@ void Frame::initFrame(const cv::Mat& img)
   // Set keypoints to nullptr
   std::for_each(key_pts_.begin(), key_pts_.end(), [&](FeaturePtr ftr){ ftr=nullptr; });
   
+  //把img_pyr_的空闲空间去除
   ImgPyr ().swap(img_pyr_);
+  //把img加入mat vector金字塔
   img_pyr_.push_back(img);
   // Build Image Pyramid
   // frame_utils::createImgPyramid(img, max(Config::nPyrLevels(), Config::kltMaxLevel()+1), img_pyr_);

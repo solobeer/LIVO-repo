@@ -196,7 +196,7 @@ esekfom::esekf<state_ikfom, 12, input_ikfom> kf;
 state_ikfom state_point;
 vect3 pos_lid;
 #else
-StatesGroup  state;
+StatesGroup  state; //全局变量 18维状态量
 #endif
 
 nav_msgs::Path path;
@@ -520,6 +520,8 @@ void img_cbk(const sensor_msgs::ImageConstPtr& msg)
     sig_buffer.notify_all();
 }
 
+//第一次为空返回
+//
 bool sync_packages(LidarMeasureGroup &meas)
 {
     if ((lidar_buffer.empty() && img_buffer.empty())) { // has lidar topic or img topic?
@@ -532,6 +534,7 @@ bool sync_packages(LidarMeasureGroup &meas)
         meas.is_lidar_end = false;
     }
     
+    //相当于每帧点云放进来
     if (!lidar_pushed) { // If not in lidar scan, need to generate new meas
         if (lidar_buffer.empty()) {
             // ROS_ERROR("out sync");
@@ -551,12 +554,13 @@ bool sync_packages(LidarMeasureGroup &meas)
             // ROS_ERROR("out sync");
             return false;
         }
-        sort(meas.lidar->points.begin(), meas.lidar->points.end(), time_list); // sort by sample timestamp
-        meas.lidar_beg_time = time_buffer.front(); // generate lidar_beg_time
+        sort(meas.lidar->points.begin(), meas.lidar->points.end(), time_list); // sort by 曲率
+        meas.lidar_beg_time = time_buffer.front(); // 把点云开始时间也赋上，估计是开始扫描的点云
+        //最后点的时间？用曲率算的
         lidar_end_time = meas.lidar_beg_time + meas.lidar->points.back().curvature / double(1000); // calc lidar scan end time
-        lidar_pushed = true; // flag
+        lidar_pushed = true; // flag 放入一帧点云
     }
-
+    //没图像，只有雷达数据，收集IMU信息
     if (img_buffer.empty()) { // no img topic, means only has lidar topic
         if (last_timestamp_imu < lidar_end_time+0.02) { // imu message needs to be larger than lidar_end_time, keep complete propagate.
             // ROS_ERROR("out sync");
@@ -566,6 +570,7 @@ bool sync_packages(LidarMeasureGroup &meas)
         double imu_time = imu_buffer.front()->header.stamp.toSec();
         m.imu.clear();
         mtx_buffer.lock();
+        //把小于最后一个雷达点云的IMU都放进去m中
         while ((!imu_buffer.empty() && (imu_time<lidar_end_time))) {
             imu_time = imu_buffer.front()->header.stamp.toSec();
             if(imu_time > lidar_end_time) break;
@@ -576,7 +581,9 @@ bool sync_packages(LidarMeasureGroup &meas)
         time_buffer.pop_front();
         mtx_buffer.unlock();
         sig_buffer.notify_all();
+        //这个标志用来控制每次收集好了IMU信息后，下一次就是放雷达点云了
         lidar_pushed = false; // sync one whole lidar scan.
+        //说明已经把雷达点云前的IMU放入了，当前的meas是以雷达结束的
         meas.is_lidar_end = true; // process lidar topic, so timestamp should be lidar scan end.
         meas.measures.push_back(m);
         // ROS_ERROR("out sync");
@@ -586,6 +593,7 @@ bool sync_packages(LidarMeasureGroup &meas)
     // cout<<"lidar_buffer.size(): "<<lidar_buffer.size()<<" img_buffer.size(): "<<img_buffer.size()<<endl;
     // cout<<"time_buffer.size(): "<<time_buffer.size()<<" img_time_buffer.size(): "<<img_time_buffer.size()<<endl;
     // cout<<"img_time_buffer.front(): "<<img_time_buffer.front()<<"lidar_end_time: "<<lidar_end_time<<"last_timestamp_imu: "<<last_timestamp_imu<<endl;
+    //有图像topic，但是图像队列头的时间戳已经大于雷达队列头时间戳，说明还是处理雷达数据，和上面一样。
     if ((img_time_buffer.front()>lidar_end_time) )
     { // has img topic, but img topic timestamp larger than lidar end time, process lidar topic.
         if (last_timestamp_imu < lidar_end_time+0.02) 
@@ -610,7 +618,7 @@ bool sync_packages(LidarMeasureGroup &meas)
         lidar_pushed = false;
         meas.is_lidar_end = true;
         meas.measures.push_back(m);
-    }
+    } //相当于处理目前雷达时间前，每个相机间隔间的IMU信息。
     else 
     {
         double img_start_time = img_time_buffer.front(); // process img topic, record timestamp
@@ -1125,7 +1133,7 @@ void readParameters(ros::NodeHandle &nh)
     nh.param<vector<double>>("mapping/extrinsic_R", extrinR, vector<double>());
     nh.param<vector<double>>("camera/Pcl", cameraextrinT, vector<double>());
     nh.param<vector<double>>("camera/Rcl", cameraextrinR, vector<double>());
-    nh.param<int>("grid_size", grid_size, 40);
+    nh.param<int>("grid_size", grid_size, 40); 
     nh.param<int>("patch_size", patch_size, 4);
     nh.param<double>("outlier_threshold",outlier_threshold,100);
     nh.param<double>("ncc_thre", ncc_thre, 100);
@@ -1175,6 +1183,7 @@ int main(int argc, char** argv)
     VD(DIM_STATE) solution;
     MD(DIM_STATE, DIM_STATE) G, H_T_H, I_STATE;
     V3D rot_add, t_add;
+    //main里面定义的
     StatesGroup state_propagat;
     PointType pointOri, pointSel, coeff;
     #endif
@@ -1197,26 +1206,28 @@ int main(int argc, char** argv)
     shared_ptr<ImuProcess> p_imu(new ImuProcess());
     // p_imu->set_extrinsic(V3D(0.04165, 0.02326, -0.0284));   //avia
     // p_imu->set_extrinsic(V3D(0.05512, 0.02226, -0.0297));   //horizon
-    V3D extT;
-    M3D extR;
+    V3D extT; //Lidar to IMU 外参
+    M3D extR; //Lidar to IMU 外参
     extT<<VEC_FROM_ARRAY(extrinT);
     extR<<MAT_FROM_ARRAY(extrinR);
     Lidar_offset_to_IMU = extT;
+    //lidar selector作用
+    //gird_size 是40
     lidar_selection::LidarSelectorPtr lidar_selector(new lidar_selection::LidarSelector(grid_size, new SparseMap));
     if(!vk::camera_loader::loadFromRosNs("laserMapping", lidar_selector->cam))
         throw std::runtime_error("Camera model not correctly specified.");
-    lidar_selector->MIN_IMG_COUNT = MIN_IMG_COUNT;
+    lidar_selector->MIN_IMG_COUNT = MIN_IMG_COUNT; //1000
     lidar_selector->debug = debug;
-    lidar_selector->patch_size = patch_size;
-    lidar_selector->outlier_threshold = outlier_threshold;
-    lidar_selector->ncc_thre = ncc_thre;
-    lidar_selector->sparse_map->set_camera2lidar(cameraextrinR, cameraextrinT);
+    lidar_selector->patch_size = patch_size; //8
+    lidar_selector->outlier_threshold = outlier_threshold; //300 # 78 100 156
+    lidar_selector->ncc_thre = ncc_thre; // 0
+    lidar_selector->sparse_map->set_camera2lidar(cameraextrinR, cameraextrinT); //camera to lidar R T 外参
     lidar_selector->set_extrinsic(extT, extR);
-    lidar_selector->state = &state;
-    lidar_selector->state_propagat = &state_propagat;
-    lidar_selector->NUM_MAX_ITERATIONS = NUM_MAX_ITERATIONS;
+    lidar_selector->state = &state; //全局状态量
+    lidar_selector->state_propagat = &state_propagat; //main里面定义的，感觉是预计分的状态记录
+    lidar_selector->NUM_MAX_ITERATIONS = NUM_MAX_ITERATIONS; //EISKF 的最大迭代次数 10
     lidar_selector->MIN_IMG_COUNT = MIN_IMG_COUNT;
-    lidar_selector->img_point_cov = IMG_POINT_COV;
+    lidar_selector->img_point_cov = IMG_POINT_COV; //100还不知道是什么
     lidar_selector->fx = cam_fx;
     lidar_selector->fy = cam_fy;
     lidar_selector->cx = cam_cx;
@@ -1231,7 +1242,7 @@ int main(int argc, char** argv)
     p_imu->set_acc_bias_cov(V3D(0.00001, 0.00001, 0.00001));
 
     #ifndef USE_IKFOM
-    G.setZero();
+    G.setZero(); // 18 * 18 的矩阵，三个都是
     H_T_H.setZero();
     I_STATE.setIdentity();
     #endif
@@ -1267,6 +1278,7 @@ int main(int argc, char** argv)
     {
         if (flg_exit) break;
         ros::spinOnce();
+        //大概就是统计相机前或者雷达前的IMU数据，放到里面的m中
         if(!sync_packages(LidarMeasures))
         {
             status = ros::ok();
@@ -1328,6 +1340,7 @@ int main(int argc, char** argv)
         //相机与IMU数据
         if (! LidarMeasures.is_lidar_end) 
         {
+            //PointCloudXYZI
             cout<<"[ VIO ]: Raw feature num: "<<pcl_wait_pub->points.size() << "." << endl;
             if (first_lidar_time<10)
             {
@@ -1359,6 +1372,7 @@ int main(int argc, char** argv)
                 //2 是addSparseMap，Add %d 3D points 这里不是很懂
                 //3 ComputeJ里面：UpdateState迭代更新，最后一次更新updateFrameState
                 //4 addObservation
+                //这里取最后一个？
                 lidar_selector->detect(LidarMeasures.measures.back().img, pcl_wait_pub);
                 // int size = lidar_selector->map_cur_frame_.size();
                 int size_sub = lidar_selector->sub_map_cur_frame_.size();

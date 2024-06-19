@@ -113,7 +113,7 @@ class LidarSelector {
     
     PointCloudXYZI::Ptr Map_points;
     PointCloudXYZI::Ptr Map_points_output;
-    PointCloudXYZI::Ptr pg_down;
+    PointCloudXYZI::Ptr pg_down; //
     pcl::VoxelGrid<PointType> downSizeFilter;
     unordered_map<VOXEL_KEY, VOXEL_POINTS*> feat_map;
     unordered_map<VOXEL_KEY, float> sub_feat_map; //timestamp

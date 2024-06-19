@@ -35,7 +35,7 @@ using namespace Sophus;
 #define DIM_PROC_N (12)      // Dimension of process noise (Let Dim(SO(3)) = 3)
 #define CUBE_LEN  (6.0)
 #define LIDAR_SP_LEN    (2)
-#define INIT_COV   (0.001)
+#define INIT_COV   (0.001)  //初始的协方差大小
 #define NUM_MATCH_POINTS    (5)
 #define MAX_MEAS_DIM        (10000)
 
@@ -146,6 +146,7 @@ namespace std
   };
 }
 
+//有图像相对第一个点云开始的时间，预计分用到的IMU的队列，图像本身，主要用来放之间的IMU数据
 struct MeasureGroup     
 {
     double img_offset_time;
@@ -161,9 +162,9 @@ struct LidarMeasureGroup
 {
     double lidar_beg_time;
     double last_update_time;
-    PointCloudXYZI::Ptr lidar;
+    PointCloudXYZI::Ptr lidar; //放一帧雷达点云
     std::deque<struct MeasureGroup> measures;
-    bool is_lidar_end;
+    bool is_lidar_end; //标志收集好一次IMU信息后，是否是以雷达结束的，而不是相机
     int lidar_scan_index_now;
     LidarMeasureGroup()
     {
@@ -207,8 +208,8 @@ struct SparseMap
     vector<V3D> P_ref;
     vector<V3D> xyz_ref;
     vector<V2D> px;
-    M3D Rcl;
-    V3D Pcl;
+    M3D Rcl; //相机到lidar的旋转矩阵
+    V3D Pcl; //相机到lidar的平移向量
     SparseMap()
     {
         this->points.clear();
@@ -222,7 +223,8 @@ struct SparseMap
         this->Rcl = M3D::Identity();
         this->Pcl = Zero3d;
     } ;
-
+    
+    //设置相机到lidar的变换矩阵
     void set_camera2lidar(vector<double>& R,  vector<double>& P )
     {
         this->Rcl << MAT_FROM_ARRAY(R);
@@ -341,6 +343,7 @@ namespace lidar_selection
 }
 typedef boost::shared_ptr<SparseMap> SparseMapPtr;
 
+//论文里面的全局状态量
 struct StatesGroup
 {
     StatesGroup() {
@@ -350,7 +353,7 @@ struct StatesGroup
         this->bias_g  = Zero3d;
         this->bias_a  = Zero3d;
         this->gravity = Zero3d;
-        this->cov     = Matrix<double,DIM_STATE,DIM_STATE>::Identity() * INIT_COV;
+        this->cov     = Matrix<double,DIM_STATE,DIM_STATE>::Identity() * INIT_COV; //18 * 18 的单位协方差，开始是0.001
 	};
 
     StatesGroup(const StatesGroup& b) {
