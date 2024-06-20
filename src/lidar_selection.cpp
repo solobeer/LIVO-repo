@@ -619,6 +619,7 @@ void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
             }
             if(error > outlier_threshold*patch_size_total) continue;
             
+            //这里相当于当前帧的视觉子图
             sub_map_cur_frame_.push_back(pt);
 
             sub_sparse_map->align_errors.push_back(error);
@@ -825,7 +826,8 @@ float LidarSelector::UpdateState(cv::Mat img, float total_residual, int level)
     //MatrixXd
     H_sub.resize(H_DIM, 6);
     H_sub.setZero();
-    
+
+    //迭代状态卡尔曼滤波，有个最大迭代次数，或者当err小于某个值的时候，退出
     for (int iteration=0; iteration<NUM_MAX_ITERATIONS; iteration++) 
     {
         // double t1 = omp_get_wtime();
@@ -842,7 +844,7 @@ float LidarSelector::UpdateState(cv::Mat img, float total_residual, int level)
         
         M3D p_hat;
         int i;
-
+        //对于视觉子图里面的每一个点，与图像计算光度误差
         for (i=0; i<sub_sparse_map->index.size(); i++) 
         {
             patch_error = 0.0;
@@ -897,6 +899,7 @@ float LidarSelector::UpdateState(cv::Mat img, float total_residual, int level)
                     JdR = Jdphi * Jdphi_dR + Jdp * Jdp_dR;
                     Jdt = Jdp * Jdp_dt;
                     //}
+                    //这里是真正算误差的地方，在图像平面算
                     double res = w_ref_tl*img_ptr[0] + w_ref_tr*img_ptr[scale] + w_ref_bl*img_ptr[scale*width] + w_ref_br*img_ptr[scale*width+scale]  - P[patch_size_total*level + x*patch_size+y];
                     z(i*patch_size_total+x*patch_size+y) = res;
                     // float weight = 1.0;
@@ -910,17 +913,19 @@ float LidarSelector::UpdateState(cv::Mat img, float total_residual, int level)
                     H_sub.block<1,6>(i*patch_size_total+x*patch_size+y,0) << JdR, Jdt;
                 }
             }  
-
+            //每个点的patch误差
             sub_sparse_map->errors[i] = patch_error;
+            //总误差
             error += patch_error;
         }
 
         // computeH += omp_get_wtime() - t1;
 
+        //每一次迭代后
         error = error/n_meas_;
 
         // double t3 = omp_get_wtime();
-
+        //如果新误差小于上一次误差，更新状态
         if (error <= last_error) 
         {
             old_state = (*state);
@@ -943,12 +948,13 @@ float LidarSelector::UpdateState(cv::Mat img, float total_residual, int level)
             auto &&rot_add = solution.block<3,1>(0,0);
             auto &&t_add   = solution.block<3,1>(3,0);
 
+            //小于某个值
             if ((rot_add.norm() * 57.3f < 0.001f) && (t_add.norm() * 100.0f < 0.001f))
             {
                 EKF_end = true;
             }
         }
-        else
+        else //如果新误差大于上一次误差，直接结束
         {
             (*state) = old_state;
             EKF_end = true;
@@ -1028,7 +1034,9 @@ void LidarSelector::addObservation(cv::Mat img)
                 ftr_new->id_ = new_frame_->id_;
                 // ftr_new->ImgPyr.resize(5);
                 // for(int i=0;i<5;i++) ftr_new->ImgPyr[i] = new_frame_->img_pyr_[i];
+                //往sub_sparse_map里加Feature
                 pt->addFrameRef(ftr_new);      
+    
             }
         }
     }
@@ -1053,6 +1061,7 @@ void LidarSelector::ComputeJ(cv::Mat img)
     {
         state->cov -= G*state->cov;
     }
+    //更新状态
     updateFrameState(*state);
 }
 

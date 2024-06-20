@@ -1536,6 +1536,7 @@ int main(int argc, char** argv)
             for(int i=0;i<1;i++) {}
         }
 
+        //用雷达点云做状态更新
         if(lidar_en)
         {
             for (iterCount = -1; iterCount < NUM_MAX_ITERATIONS && flg_EKF_inited; iterCount++) 
