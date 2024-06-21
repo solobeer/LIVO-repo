@@ -1045,8 +1045,7 @@ void LidarSelector::addObservation(cv::Mat img)
 void LidarSelector::ComputeJ(cv::Mat img) 
 {
     //视觉子图
-    int total_points = sub_sparse_map-
-    index.size();
+    int total_points = sub_sparse_map->index.size();
     if (total_points==0) return;
     float error = 1e10;
     float now_error = error;
