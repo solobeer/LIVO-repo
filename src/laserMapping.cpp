@@ -130,7 +130,7 @@ bool lidar_pushed, flg_reset, flg_exit = false;
 bool ncc_en;
 int dense_map_en = 1;
 int img_en = 1;
-int lidar_en = 1;
+int lidar_en = 1; //默认是1
 int debug = 0;
 bool fast_lio_is_ready = false;
 int grid_size, patch_size;
@@ -147,6 +147,8 @@ deque<double>          img_time_buffer;
 vector<bool> point_selected_surf; 
 vector<vector<int>> pointSearchInd_surf; 
 vector<PointVector> Nearest_Points; 
+//vector<double>
+//放点到平面法向量的距离
 vector<double> res_last;
 vector<double> extrinT(3, 0.0);
 vector<double> extrinR(9, 0.0);
@@ -158,12 +160,18 @@ bool flg_EKF_inited, flg_EKF_converged, EKF_stop_flg = 0;
 //surf feature in map
 PointCloudXYZI::Ptr featsFromMap(new PointCloudXYZI());
 PointCloudXYZI::Ptr cube_points_add(new PointCloudXYZI());
+//当前帧视觉地图
 PointCloudXYZI::Ptr map_cur_frame_point(new PointCloudXYZI());
+//当前帧视觉子图点云
 PointCloudXYZI::Ptr sub_map_cur_frame_point(new PointCloudXYZI());
 
+//放去畸变后的点云
 PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
+//下采样后的点云-当前帧
 PointCloudXYZI::Ptr feats_down_body(new PointCloudXYZI());
+//下采样后转换到世界坐标系下的点云-当前帧
 PointCloudXYZI::Ptr feats_down_world(new PointCloudXYZI());
+//放点的平面法向量
 PointCloudXYZI::Ptr normvec(new PointCloudXYZI());
 PointCloudXYZI::Ptr laserCloudOri(new PointCloudXYZI());
 PointCloudXYZI::Ptr corr_normvect(new PointCloudXYZI());
@@ -259,6 +267,7 @@ void pointBodyToWorld_ikfom(PointType const * const pi, PointType * const po, st
 }
 #endif
 
+//将当前激光点to imu * R 得到世界坐标系下的点
 void pointBodyToWorld(PointType const * const pi, PointType * const po)
 {
     V3D p_body(pi->x, pi->y, pi->z);
@@ -305,8 +314,9 @@ void RGBpointBodyToWorld(PointType const * const pi, PointType * const po)
     po->intensity = pi->intensity;
 
     float intensity = pi->intensity;
+    //得到小数
     intensity = intensity - floor(intensity);
-
+    //乘以1万
     int reflection_map = intensity*10000;
 }
 
@@ -540,6 +550,8 @@ bool sync_packages(LidarMeasureGroup &meas)
             // ROS_ERROR("out sync");
             return false;
         }
+        std::cout << "------lidar_pushed = false--------\n";
+        //最前面的一帧点云
         meas.lidar = lidar_buffer.front(); // push the firsrt lidar topic
         if(meas.lidar->points.size() <= 1)
         {
@@ -554,9 +566,10 @@ bool sync_packages(LidarMeasureGroup &meas)
             // ROS_ERROR("out sync");
             return false;
         }
+        //按时间排序
         sort(meas.lidar->points.begin(), meas.lidar->points.end(), time_list); // sort by 曲率
         meas.lidar_beg_time = time_buffer.front(); // 把点云开始时间也赋上，估计是开始扫描的点云
-        //最后点的时间？用曲率算的
+        //最后点的时间？最后一个点的时间
         lidar_end_time = meas.lidar_beg_time + meas.lidar->points.back().curvature / double(1000); // calc lidar scan end time
         lidar_pushed = true; // flag 放入一帧点云
     }
@@ -566,6 +579,7 @@ bool sync_packages(LidarMeasureGroup &meas)
             // ROS_ERROR("out sync");
             return false;
         }
+        std::cout << "------img_buffer.empty()--------\n";
         struct MeasureGroup m; //standard method to keep imu message.
         double imu_time = imu_buffer.front()->header.stamp.toSec();
         m.imu.clear();
@@ -601,6 +615,7 @@ bool sync_packages(LidarMeasureGroup &meas)
             // ROS_ERROR("out sync");
             return false;
         }
+        std::cout << "------img_time_buffer.front()>lidar_end_time--------\n";
         double imu_time = imu_buffer.front()->header.stamp.toSec();
         m.imu.clear();
         mtx_buffer.lock();
@@ -615,7 +630,9 @@ bool sync_packages(LidarMeasureGroup &meas)
         time_buffer.pop_front();
         mtx_buffer.unlock();
         sig_buffer.notify_all();
+        //证明该放下一次的点云了，进入下一次的数据录入
         lidar_pushed = false;
+        //相当于把下一帧点云前的所有IMU都放入了
         meas.is_lidar_end = true;
         meas.measures.push_back(m);
     } //相当于处理目前雷达时间前，每个相机间隔间的IMU信息。
@@ -627,8 +644,10 @@ bool sync_packages(LidarMeasureGroup &meas)
             // ROS_ERROR("out sync");
             return false;
         }
+        std::cout << "--------imu before img ---------\n";
         double imu_time = imu_buffer.front()->header.stamp.toSec();
         m.imu.clear();
+        //图像相对于第一个点的时间
         m.img_offset_time = img_start_time - meas.lidar_beg_time; // record img offset time, it shoule be the Kalman update timestamp.
         m.img = img_buffer.front();
         mtx_buffer.lock();
@@ -700,6 +719,7 @@ bool sync_packages(LidarMeasureGroup &meas)
     // lidar_pushed = false;
 }
 
+//把下采样后的点feats_down_body转换到世界坐标系下的feats_down_world点后，加入ikdtree地图
 void map_incremental()
 {
     for (int i = 0; i < feats_down_size; i++)
@@ -717,7 +737,10 @@ void map_incremental()
 }
 
 // PointCloudXYZRGB::Ptr pcl_wait_pub_RGB(new PointCloudXYZRGB(500000, 1));
+//每次结尾赋值，因此在开始处理VIO时，是上一帧点云，后面publish时，是最新的一帧点云，世界坐标系
+//注意还是没有下采样的原始点云
 PointCloudXYZI::Ptr pcl_wait_pub(new PointCloudXYZI());
+//应该是把pcl_wait_pub的点云赋上对应在图像中的颜色信息，再发布
 void publish_frame_world_rgb(const ros::Publisher & pubLaserCloudFullRes, lidar_selection::LidarSelectorPtr lidar_selector)
 {
     // PointCloudXYZI::Ptr laserCloudFullRes(dense_map_en ? feats_undistort : feats_down_body);
@@ -783,6 +806,7 @@ void publish_frame_world_rgb(const ros::Publisher & pubLaserCloudFullRes, lidar_
     // mtx_buffer_pointcloud.unlock();
 }
 
+//发布pcl_wait_pub
 void publish_frame_world(const ros::Publisher & pubLaserCloudFullRes)
 {
     // PointCloudXYZI::Ptr laserCloudFullRes(dense_map_en ? feats_undistort : feats_down_body);
@@ -845,6 +869,7 @@ void publish_visual_world_map(const ros::Publisher & pubVisualCloud)
     // mtx_buffer_pointcloud.unlock();
 }
 
+//发布视觉子图
 void publish_visual_world_sub_map(const ros::Publisher & pubSubVisualCloud)
 {
     PointCloudXYZI::Ptr laserCloudFullRes(sub_map_cur_frame_point);
@@ -873,8 +898,11 @@ void publish_visual_world_sub_map(const ros::Publisher & pubSubVisualCloud)
     // mtx_buffer_pointcloud.unlock();
 }
 
+
+//发布找到平面法向量的点云
 void publish_effect_world(const ros::Publisher & pubLaserCloudEffect)
 {
+    std::cout << "#######" << effct_feat_num  << "#######"<< std::endl;
     PointCloudXYZI::Ptr laserCloudWorld( \
                     new PointCloudXYZI(effct_feat_num, 1));
     for (int i = 0; i < effct_feat_num; i++)
@@ -1238,7 +1266,7 @@ int main(int argc, char** argv)
     p_imu->set_extrinsic(extT, extR);
     p_imu->set_gyr_cov_scale(V3D(gyr_cov_scale, gyr_cov_scale, gyr_cov_scale));
     p_imu->set_acc_cov_scale(V3D(acc_cov_scale, acc_cov_scale, acc_cov_scale));
-    p_imu->set_gyr_bias_cov(V3D(0.00001, 0.00001, 0.00001));
+    p_imu->set_gyr_bias_cov(V3D(0.00001, 0.00001, 0.00001)); //设置协方差，相当于置信度为0.00001m
     p_imu->set_acc_bias_cov(V3D(0.00001, 0.00001, 0.00001));
 
     #ifndef USE_IKFOM
@@ -1306,7 +1334,8 @@ int main(int argc, char** argv)
         state_point = kf.get_x();
         pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
         #else
-        //开始第一次是初始化IMU，后面是点云去畸变
+        //开始第一次是初始化IMU，后面是点云去畸变，会一直算IMU的积分数据。
+        //feats_undistort是去畸变后的点云。这里已经用IMU对state做了更新了
         p_imu->Process2(LidarMeasures, state, feats_undistort); 
         state_propagat = state;
         #endif
@@ -1341,6 +1370,7 @@ int main(int argc, char** argv)
         if (! LidarMeasures.is_lidar_end) 
         {
             //PointCloudXYZI
+            // cout << "lidar_Point = " << LidarMeasures.lidar->points.size() << endl;
             cout<<"[ VIO ]: Raw feature num: "<<pcl_wait_pub->points.size() << "." << endl;
             if (first_lidar_time<10)
             {
@@ -1365,7 +1395,7 @@ int main(int argc, char** argv)
                 //                         &laserCloudWorld->points[i]);
                 // }
 
-                //先用IMU预积分更新一下状态，pcl_wait_pub是点云数据，
+                //先用IMU预积分更新一下状态，pcl_wait_pub是上一帧点云数据，
                 //视觉是从地图点里抽FOV里面的点，当然会作检查，取出遮挡点、深度不连续点，然后在于当前img作光度误差
                 //1 先是addFromSparseMap choose %d points from sub_sparse_map，在sub_sparse_map中，利用最近雷达扫描
                 //从地图中选取子图。
@@ -1405,6 +1435,7 @@ int main(int argc, char** argv)
                 out_msg.image = img_rgb;
                 img_pub.publish(out_msg.toImageMsg());
 
+                //发布视觉相关话题
                 publish_frame_world_rgb(pubLaserCloudFullResRgb, lidar_selector);
                 publish_visual_world_sub_map(pubSubVisualCloud);
                 
@@ -1430,6 +1461,8 @@ int main(int argc, char** argv)
         /*** downsample the feature points in a scan ***/
         downSizeFilterSurf.setInputCloud(feats_undistort);
         downSizeFilterSurf.filter(*feats_down_body);
+        std::cout << "****************feats_undistort_size = " << feats_undistort->points.size() << std::endl;
+        std::cout << "****************feats_down_body_size = " << feats_down_body->points.size() << std::endl;
     #ifdef USE_ikdtree
         /*** initialize the map kdtree ***/
         #ifdef USE_ikdforest
@@ -1450,6 +1483,7 @@ int main(int argc, char** argv)
             }
             continue;
         }
+        //激光地图点
         int featsFromMapNum = ikdtree.size();
         #endif
     #else
@@ -1464,6 +1498,7 @@ int main(int argc, char** argv)
         downSizeFilterMap.filter(*featsFromMap);
         int featsFromMapNum = featsFromMap->points.size();
     #endif
+        //下采样后的点
         feats_down_size = feats_down_body->points.size();
         cout<<"[ LIO ]: Raw feature num: "<<feats_undistort->points.size()<<" downsamp num "<<feats_down_size<<" Map num: "<<featsFromMapNum<< "." << endl;
 
@@ -1475,6 +1510,7 @@ int main(int argc, char** argv)
         
         t1 = omp_get_wtime();
         //要用雷达数据
+        std::cout << "--------lidar_en = " << lidar_en << "---------" << std::endl;
         if (lidar_en)
         {
             //欧拉角
@@ -1539,13 +1575,16 @@ int main(int argc, char** argv)
         //用雷达点云做状态更新
         if(lidar_en)
         {
+            //外层迭代次数
             for (iterCount = -1; iterCount < NUM_MAX_ITERATIONS && flg_EKF_inited; iterCount++) 
             {
                 match_start = omp_get_wtime();
+                //去除后面空余的空间
                 PointCloudXYZI ().swap(*laserCloudOri);
                 PointCloudXYZI ().swap(*corr_normvect);
                 // laserCloudOri->clear(); 
                 // corr_normvect->clear(); 
+                //总残差
                 total_residual = 0.0; 
 
                 /** closest surface search and residual computation **/
@@ -1554,6 +1593,7 @@ int main(int argc, char** argv)
                     #pragma omp parallel for
                 #endif
                 // normvec->resize(feats_down_size);
+                //遍历新的一帧下采样后的点云
                 for (int i = 0; i < feats_down_size; i++)
                 {
                     PointType &point_body  = feats_down_body->points[i];
@@ -1569,6 +1609,7 @@ int main(int argc, char** argv)
                     #endif
                     uint8_t search_flag = 0;  
                     double search_start = omp_get_wtime();
+                    //找到最近的点？
                     if (nearest_search_en)
                     {
                         /** Find the closest surfaces in the map **/
@@ -1604,30 +1645,39 @@ int main(int argc, char** argv)
 
                     VF(4) pabcd;
                     point_selected_surf[i] = false;
+                    //找到的平面有效
+                    //pabcd是平面 ax + by + cz + d = 0 的平面系数
                     if (esti_plane(pabcd, points_near, 0.1f)) //(planeValid)
                     {
+                        //点到平面距离 fabs(pd2) / sqrt(p_body.norm())
                         float pd2 = pabcd(0) * point_world.x + pabcd(1) * point_world.y + pabcd(2) * point_world.z + pabcd(3);
                         float s = 1 - 0.9 * fabs(pd2) / sqrt(p_body.norm());
 
-                        if (s > 0.9)
+                        if (s > 0.9) //换个说法就是 点到平面距离小于 1 / 9 = 0.111m
                         {
-                            point_selected_surf[i] = true;
-                            normvec->points[i].x = pabcd(0);
+                            point_selected_surf[i] = true; //认为找到了最近的平面
+                            normvec->points[i].x = pabcd(0); //赋值平面法向量
                             normvec->points[i].y = pabcd(1);
                             normvec->points[i].z = pabcd(2);
-                            normvec->points[i].intensity = pd2;
+                            normvec->points[i].intensity = pd2; //点到平面距离
                             res_last[i] = abs(pd2);
                         }
                     }
                 }
                 // cout<<"pca time test: "<<pca_time1<<" "<<pca_time2<<endl;
+                //统计找到了法向量的点数，在lidar_en里面
                 effct_feat_num = 0;
+                //先resize
                 laserCloudOri->resize(feats_down_size);
                 corr_normvect->reserve(feats_down_size);
                 for (int i = 0; i < feats_down_size; i++)
                 {
+                    //如果找到了平面法向量 且到平面距离小于 2.0
                     if (point_selected_surf[i] && (res_last[i] <= 2.0))
                     {
+                        //相当于把找到法向量的点移到laserCloudOri中，法向量一道corr_normvect中
+                        //开始的残存就是点到平面的距离
+                        //统计一共有多少个点
                         laserCloudOri->points[effct_feat_num] = feats_down_body->points[i];
                         corr_normvect->points[effct_feat_num] = normvec->points[i];
                         total_residual += res_last[i];
@@ -1635,6 +1685,7 @@ int main(int argc, char** argv)
                     }
                 }
 
+                //平均每个点的距离残存
                 res_mean_last = total_residual / effct_feat_num;
                 // cout << "[ mapping ]: Effective feature num: "<<effct_feat_num<<" res_mean_last "<<res_mean_last<<endl;
                 match_time  += omp_get_wtime() - match_start;
@@ -1643,13 +1694,15 @@ int main(int argc, char** argv)
                 /*** Computation of Measuremnt Jacobian matrix H and measurents vector ***/
                 MatrixXd Hsub(effct_feat_num, 6);
                 VectorXd meas_vec(effct_feat_num);
-
+                
+                //一共匹配到的点
                 for (int i = 0; i < effct_feat_num; i++)
                 {
                     const PointType &laser_p  = laserCloudOri->points[i];
                     V3D point_this(laser_p.x, laser_p.y, laser_p.z);
                     point_this += Lidar_offset_to_IMU;
                     M3D point_crossmat;
+                    //叉乘获取
                     point_crossmat<<SKEW_SYM_MATRX(point_this);
 
                     /*** get the normal vector of closest surface/corner ***/
@@ -1671,6 +1724,7 @@ int main(int argc, char** argv)
                 flg_EKF_converged = false;
                 
                 /*** Iterative Kalman Filter Update ***/
+                //第一次初始化EKF
                 if (!flg_EKF_inited)
                 {
                     cout<<"||||||||||Initiallizing LiDar||||||||||"<<endl;
@@ -1695,7 +1749,7 @@ int main(int argc, char** argv)
                     state.resetpose();
                     EKF_stop_flg = true;
                 }
-                else
+                else //后续阶段
                 {
                     auto &&Hsub_T = Hsub.transpose();
                     auto &&HTz = Hsub_T * meas_vec;
@@ -1715,7 +1769,8 @@ int main(int argc, char** argv)
                         EKF_stop_flg = true;
                         solution.block<6,1>(9,0).setZero();
                     }
-
+                    
+                    //这里state更新了
                     state += solution;
 
                     rot_add = solution.block<3,1>(0,0);
@@ -1723,6 +1778,7 @@ int main(int argc, char** argv)
 
                     if ((rot_add.norm() * 57.3 < 0.01) && (t_add.norm() * 100 < 0.015))
                     {
+                        //EKF收敛
                         flg_EKF_converged = true;
                     }
 
@@ -1733,6 +1789,7 @@ int main(int argc, char** argv)
                 
 
                 /*** Rematch Judgement ***/
+                //判断是否要重新匹配
                 nearest_search_en = false;
                 if (flg_EKF_converged || ((rematch_num == 0) && (iterCount == (NUM_MAX_ITERATIONS - 2))))
                 {
@@ -1741,6 +1798,7 @@ int main(int argc, char** argv)
                 }
 
                 /*** Convergence Judgements and Covariance Update ***/
+                // 迭代ESKF的最后一步？
                 if (!EKF_stop_flg && (rematch_num >= 2 || (iterCount == NUM_MAX_ITERATIONS - 1)))
                 {
                     if (flg_EKF_inited)
@@ -1760,6 +1818,7 @@ int main(int argc, char** argv)
                         // cout<<"P: "<<P_diag.transpose()<<endl;
                         // cout<<"position: "<<state.pos_end.transpose()<<" total distance: "<<total_distance<<endl;
                     }
+    
                     EKF_stop_flg = true;
                 }
                 solve_time += omp_get_wtime() - solve_start;
@@ -1774,7 +1833,9 @@ int main(int argc, char** argv)
         double t_update_end = omp_get_wtime();
         /******* Publish odometry *******/
         euler_cur = RotMtoEuler(state.rot_end);
+        //四元数表示旋转
         geoQuat = tf::createQuaternionMsgFromRollPitchYaw(euler_cur(0), euler_cur(1), euler_cur(2));
+        //这里内部就是state.pos_end 和上面由state.rot_end转换后的四元数geoQuat
         publish_odometry(pubOdomAftMapped);
 
         /*** add the feature points to map kdtree ***/
@@ -1784,8 +1845,11 @@ int main(int argc, char** argv)
         kdtree_incremental_time = t5 - t3 + readd_time;
         /******* Publish points *******/
 
+
+        //当前帧的点云，看到底是稠密还是稀疏，默认开了稠密，也就是没有下采样的点
         PointCloudXYZI::Ptr laserCloudFullRes(dense_map_en ? feats_undistort : feats_down_body);          
         int size = laserCloudFullRes->points.size();
+        //当前帧的点云转换到世界坐标系后的电云
         PointCloudXYZI::Ptr laserCloudWorld( new PointCloudXYZI(size, 1));
 
         for (int i = 0; i < size; i++)
@@ -1793,8 +1857,9 @@ int main(int argc, char** argv)
             RGBpointBodyToWorld(&laserCloudFullRes->points[i], \
                                 &laserCloudWorld->points[i]);
         }
+        //最新的一帧点云，已经是世界坐标系下了
         *pcl_wait_pub = *laserCloudWorld;
-
+        
         publish_frame_world(pubLaserCloudFullRes);
         // publish_visual_world_map(pubVisualCloud);
         publish_effect_world(pubLaserCloudEffect);
@@ -1826,7 +1891,16 @@ int main(int argc, char** argv)
         s_plot5[time_log_counter] = t5 - t0;
         time_log_counter ++;
         // cout<<"[ mapping ]: time: fov_check "<< fov_check_time <<" fov_check and readd: "<<t1-t0<<" match "<<aver_time_match<<" solve "<<aver_time_solve<<" ICP "<<t3-t1<<" map incre "<<t5-t3<<" total "<<aver_time_consu << "icp:" << aver_time_icp << "construct H:" << aver_time_const_H_time <<endl;
-        printf("[ LIO ]: time: fov_check: %0.6f fov_check and readd: %0.6f match: %0.6f solve: %0.6f  ICP: %0.6f  map incre: %0.6f total: %0.6f icp: %0.6f construct H: %0.6f.\n",fov_check_time,t1-t0,aver_time_match,aver_time_solve,t3-t1,t5-t3,aver_time_consu,aver_time_icp, aver_time_const_H_time);
+        printf("[ LIO ]: time: fov_check: %0.6f fov_check and readd: %0.6f match: %0.6f solve: %0.6f  ICP: %0.6f  map incre: %0.6f total: %0.6f icp: %0.6f construct H: %0.6f.\n",
+        fov_check_time,
+        t1-t0,
+        aver_time_match,
+        aver_time_solve,
+        t3-t1,
+        t5-t3,
+        aver_time_consu,
+        aver_time_icp, 
+        aver_time_const_H_time);
         if (lidar_en)
         {
             euler_cur = RotMtoEuler(state.rot_end);

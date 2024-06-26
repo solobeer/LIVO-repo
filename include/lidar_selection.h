@@ -33,7 +33,10 @@ class LidarSelector {
     float* map_value;
     float* patch_cache;
     float* patch_with_border_;
-    int width, height, grid_n_width, grid_n_height, length;
+    int width, height, grid_n_width, grid_n_height;
+    // 40 * 40 = 1600
+    int length;
+    //point数组
     SubSparseMap* sub_sparse_map;
     double fx,fy,cx,cy;
     bool ncc_en;
@@ -115,6 +118,7 @@ class LidarSelector {
     PointCloudXYZI::Ptr Map_points_output;
     PointCloudXYZI::Ptr pg_down; //
     pcl::VoxelGrid<PointType> downSizeFilter;
+    //视觉全局地图
     unordered_map<VOXEL_KEY, VOXEL_POINTS*> feat_map;
     unordered_map<VOXEL_KEY, float> sub_feat_map; //timestamp
     unordered_map<int, Warp*> Warp_map; // reference frame id, A_cur_ref and search_level

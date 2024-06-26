@@ -90,7 +90,9 @@ void LidarSelector::init()
 
 void LidarSelector::reset_grid()
 {
+    //重置grid_num，用来判断是否找到40 * 40网格最优点的
     memset(grid_num, TYPE_UNKNOWN, sizeof(int)*length);
+    //重置map_index,用来记录上面最优点的角点相应值
     memset(map_index, 0, sizeof(int)*length);
     fill_n(map_dist, length, 10000);
     std::vector<PointPtr>(length).swap(voxel_points_);
@@ -158,14 +160,15 @@ void LidarSelector::addSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
 
     // double t_b1 = omp_get_wtime() - t0;
     // t0 = omp_get_wtime();
-    
+    std::cout << "1111111 addSparseMap pg.size = " << pg->points.size() << std::endl;
+    //pg是没有下采样的上一帧世界点
     for (int i=0; i<pg->size(); i++) 
     {
         V3D pt(pg->points[i].x, pg->points[i].y, pg->points[i].z);
         //相机坐标系
         //这里pc只是一个二维变量，跟像素没关系。
         V2D pc(new_frame_->w2c(pt));
-        //40 * 40的网格，检查是否在相机视野内，考虑边缘内40为边界
+        //40 * 40的网格，检查是否在相机视野内，考虑边缘内40为边界，因为雷达投过去不一定在图像中
         if(new_frame_->cam_->isInFrame(pc.cast<int>(), (patch_size_half+1)*8)) // 20px is the patch size in the matcher
         {
             //grid size 40 
@@ -189,6 +192,7 @@ void LidarSelector::addSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
     // t0 = omp_get_wtime();
     
     int add=0;
+    //遍历所有网格
     for (int i=0; i<length; i++) 
     {
         //这里的i就是与上面的index相关，即每个40*40网格找到了角度响应值最大的点
@@ -218,6 +222,7 @@ void LidarSelector::addSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
             //角度响应值
             pt_new->value = map_value[i];
             AddPoint(pt_new);
+            //看log好像每次添加的点并不多
             add += 1;
         }
     }
@@ -232,6 +237,7 @@ void LidarSelector::addSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
 }
 
 //feat_map是全局地图
+//传进来的已经是40 * 40网格最优的点，还要用体素减少检索时间
 void LidarSelector::AddPoint(PointPtr pt_new)
 {
     //世界坐标系中的点坐标
@@ -251,12 +257,13 @@ void LidarSelector::AddPoint(PointPtr pt_new)
     VOXEL_KEY position((int64_t)loc_xyz[0], (int64_t)loc_xyz[1], (int64_t)loc_xyz[2]);
     auto iter = feat_map.find(position);
     //feat_map是全局地图，而且这里的点是自定义的视觉地图点。
+    //如果体素地图中有点，直接在map中的voxel_points添加pt就行。
     if(iter != feat_map.end())
     {
       iter->second->voxel_points.push_back(pt_new);
       iter->second->count++;
     }
-    else
+    else //如果之前每在这个体素插过点，新建一个体素，在里面添加点，然后加入map中
     {
       VOXEL_POINTS *ot = new VOXEL_POINTS(0);
       ot->voxel_points.push_back(pt_new);
@@ -382,14 +389,19 @@ void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
     if(feat_map.size()<=0) return;
     // double ts0 = omp_get_wtime();
     // PointCloudXYZI点云 pg_down
+    //feat_map是全局视觉地图，size是map的size，并不是真正点的数量
     pg_down->reserve(feat_map.size());
     //这里应该是降采样，根据体素来
     downSizeFilter.setInputCloud(pg);
     downSizeFilter.filter(*pg_down);
+
+    std::cout << "!!!!!!!feat_map size = " << feat_map.size() << 
+    ",  pg_down size = " << pg_down->points.size() << "!!!!!!!" << std::endl;
     
     reset_grid();
     memset(map_value, 0, sizeof(float)*length);
 
+    //清空
     sub_sparse_map->reset();
     deque< PointPtr >().swap(sub_map_cur_frame_); //deque< PointPtr >
 
@@ -433,15 +445,18 @@ void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
         //这个sub_feat_map的含义：
         //value是float
         auto iter = sub_feat_map.find(position);
+        //这里应该就是插入的操作了，把每个体素的position置为1
         if(iter == sub_feat_map.end())
         {
             sub_feat_map[position] = 1.0;
         }
                     
         //把世界坐标系的点换成相机坐标系的点
+        //还是三维点
         V3D pt_c(new_frame_->w2f(pt_w));
 
         V2D px;
+        // 投影后在上半平面？
         if(pt_c[2] > 0)
         {
             //变成像素坐标点
@@ -469,11 +484,15 @@ void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
 
     // double t1 = omp_get_wtime();
 
+    std::cout << "111111pg_down_size = " << pg_down->size() << 
+    ", sub_feat_map size = " << sub_feat_map.size() << "@1111111" << std::endl;
+
     //feat_Map应该是视觉全局地图
     for(auto& iter : sub_feat_map)
     {   
         VOXEL_KEY position = iter.first;
         // double t4 = omp_get_wtime();
+        //从全局地图里找到
         auto corre_voxel = feat_map.find(position);
         // double t5 = omp_get_wtime();
 
@@ -481,26 +500,31 @@ void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
         {
             std::vector<PointPtr> &voxel_points = corre_voxel->second->voxel_points;
             int voxel_num = voxel_points.size();
+            //在这个体素里有多少个点
             for (int i=0; i<voxel_num; i++)
             {
                 PointPtr pt = voxel_points[i];
                 if(pt==nullptr) continue;
+                //把地图点的坐标，换到当前相机坐标系
                 V3D pt_cam(new_frame_->w2f(pt->pos_));
                 if(pt_cam[2]<0) continue;
 
+                //二维点
                 V2D pc(new_frame_->w2c(pt->pos_));
 
                 FeaturePtr ref_ftr;
-      
+                //40 * 40的网格，检查是否在相机视野内，考虑边缘内40为边界，因为雷达投过去不一定在图像中
                 if(new_frame_->cam_->isInFrame(pc.cast<int>(), (patch_size_half+1)*8)) // 20px is the patch size in the matcher
                 {
+                    // 看在那个grid里
                     int index = static_cast<int>(pc[0]/grid_size)*grid_n_height + static_cast<int>(pc[1]/grid_size);
                     grid_num[index] = TYPE_MAP;
                     Vector3d obs_vec(new_frame_->pos() - pt->pos_);
 
-                    float cur_dist = obs_vec.norm();
+                    float cur_dist = obs_vec.norm(); //三轴平方之和
                     float cur_value = pt->value;
 
+                    //找到最小距离的点，40 *40 网格内 index是网格index
                     if (cur_dist <= map_dist[index]) 
                     {
                         map_dist[index] = cur_dist;
@@ -523,32 +547,42 @@ void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
     double t_2, t_3, t_4, t_5;
     t_2=t_3=t_4=t_5=0;
 
+    //遍历所有网格，把前面投影的点
     for (int i=0; i<length; i++) 
     { 
+        //如果投影成功了
         if (grid_num[i]==TYPE_MAP) //&& map_value[i]>10)
         {
             // double t_1 = omp_get_wtime();
 
+
+            //dist最小的点
             PointPtr pt = voxel_points_[i];
 
             if(pt==nullptr) continue;
 
+            //像素坐标点
             V2D pc(new_frame_->w2c(pt->pos_));
+            //相机坐标点
             V3D pt_cam(new_frame_->w2f(pt->pos_));
    
             bool depth_continous = false;
+            // -4 ~ 4
             for (int u=-patch_size_half; u<=patch_size_half; u++)
             {
+                // -4 ~ 4
                 for (int v=-patch_size_half; v<=patch_size_half; v++)
                 {
                     if(u==0 && v==0) continue;
 
+                    //当前点深度，一个范围 8 * 8
                     float depth = it[width*(v+int(pc[1]))+u+int(pc[0])];
 
                     if(depth == 0.) continue;
-
+                    // 与地图点深度 差
                     double delta_dist = abs(pt_cam[2]-depth);
 
+                    //深度不连续
                     if(delta_dist > 1.5)
                     {                
                         depth_continous = true;
@@ -557,6 +591,7 @@ void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
                 }
                 if(depth_continous) break;
             }
+            //深度不连续点，跳过
             if(depth_continous) continue;
 
             // t_2 += omp_get_wtime() - t_1;
@@ -969,9 +1004,10 @@ float LidarSelector::UpdateState(cv::Mat img, float total_residual, int level)
     }
     return last_error;
 } 
-//获取相机坐标系相对于世界坐标系的旋转矩阵和位移向量，感觉就是上一次的，还没有IMU
+//获取相机坐标系相对于世界坐标系的旋转矩阵和位移向量，这里IMU已经在点云去畸变的时候加入state了
 void LidarSelector::updateFrameState(StatesGroup state)
 {
+    //此时姿态
     M3D Rwi(state.rot_end);
     V3D Pwi(state.pos_end);
     Rcw = Rci * Rwi.transpose();
@@ -1044,7 +1080,7 @@ void LidarSelector::addObservation(cv::Mat img)
 
 void LidarSelector::ComputeJ(cv::Mat img) 
 {
-    //视觉子图
+    //视觉子图,从第一步选出来
     int total_points = sub_sparse_map->index.size();
     if (total_points==0) return;
     float error = 1e10;
@@ -1120,7 +1156,7 @@ void LidarSelector::detect(cv::Mat img, PointCloudXYZI::Ptr pg)
 
     //创建一个新的frame,然后Img作为金字塔第一层
     new_frame_.reset(new Frame(cam, img.clone()));
-    //用IMU预积分更新（？？？），好像只是获取相机到世界坐标系的变换，设置一下new_frame
+    //只是获取相机到世界坐标系的变换，设置一下new_frame
     updateFrameState(*state);
 
     //第一次 pg-点云

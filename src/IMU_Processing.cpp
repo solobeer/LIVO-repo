@@ -147,6 +147,7 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
 }
 #else
 //计算静止时IMU参数
+//初始化重力加速度，陀螺仪零偏，姿态为单位矩阵
 void ImuProcess::IMU_init(const MeasureGroup &meas, StatesGroup &state_inout, int &N)
 {
   /** 1. initializing the gravity, gyro bias, acc and gyro covariance
@@ -650,18 +651,20 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
   const double pcl_offset_time = lidar_meas.is_lidar_end? 
                                         (pcl_end_time - lidar_meas.lidar_beg_time) * double(1000):
                                         0.0;
+  //curvature感觉就是时间，1000是单位转换
   while (pcl_it != pcl_it_end && pcl_it->curvature <= pcl_offset_time)
   {
-    pcl_out.push_back(*pcl_it);
+    pcl_out.push_back(*pcl_it); //把点云放入
     pcl_it++;
-    lidar_meas.lidar_scan_index_now++;
+    lidar_meas.lidar_scan_index_now++; //scan_index
   }
   // cout<<"pcl_offset_time:  "<<pcl_offset_time<<"pcl_it->curvature:  "<<pcl_it->curvature<<endl;
   // cout<<"lidar_meas.lidar_scan_index_now:"<<lidar_meas.lidar_scan_index_now<<endl;
-  lidar_meas.last_update_time = pcl_end_time;
+  lidar_meas.last_update_time = pcl_end_time; //上一次更新时间
   if (lidar_meas.is_lidar_end)
   {
-    lidar_meas.lidar_scan_index_now = 0;
+    std::cout << "--------------lidar_scan_index_now = " << lidar_meas.lidar_scan_index_now << "------------" << std::endl;
+    lidar_meas.lidar_scan_index_now = 0; //如果是雷达结束，重置
   }
   // sort(pcl_out.points.begin(), pcl_out.points.end(), time_list);
   // lidar_meas.debug_show();
@@ -755,11 +758,13 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
     IMUpose.push_back(set_pose6d(offs_t, acc_imu, angvel_avr, vel_imu, pos_imu, R_imu));
   }
 
+  //计算一帧结束时的pos和角度预测
   /*** calculated the pos and attitude prediction at the frame-end ***/
   if (imu_end_time>pcl_beg_time)
   {
     double note = pcl_end_time > imu_end_time ? 1.0 : -1.0;
     dt = note * (pcl_end_time - imu_end_time);
+    //和上面的计算类似,这里等于的形式，不过vel_imu之类的值一直是一个累加值
     state_inout.vel_end = vel_imu + note * acc_imu * dt;
     state_inout.rot_end = R_imu * Exp(V3D(note * angvel_avr), dt);
     state_inout.pos_end = pos_imu + note * vel_imu * dt + note * 0.5 * acc_imu * dt * dt;
@@ -776,6 +781,7 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
   last_imu_ = v_imu.back();
   last_lidar_end_time_ = pcl_end_time;
 
+  // 这里把外参中的t加进来了
   auto pos_liD_e = state_inout.pos_end + state_inout.rot_end * Lid_offset_to_IMU;
   // auto R_liD_e   = state_inout.rot_end * Lidar_R_to_IMU;
   
@@ -794,8 +800,8 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
   auto it_pcl = pcl_out.points.end() - 1;
   for (auto it_kp = IMUpose.end() - 1; it_kp != IMUpose.begin(); it_kp--)
   {
-    auto head = it_kp - 1;
-    auto tail = it_kp;
+    auto head = it_kp - 1;	// 当前雷达点的左侧IMU帧
+    auto tail = it_kp; // 当前雷达点的右侧IMU帧
     R_imu<<MAT_FROM_ARRAY(head->rot);
     acc_imu<<VEC_FROM_ARRAY(head->acc);
     // cout<<"head imu acc: "<<acc_imu.transpose()<<endl;
@@ -826,7 +832,7 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
     }
   }
 }
-
+//点云去畸变，都投影到最后一个点云的坐标系上，同时，计算IMU的数据积分。
 void ImuProcess::Process2(LidarMeasureGroup &lidar_meas, StatesGroup &stat, PointCloudXYZI::Ptr cur_pcl_un_)
 {
   double t1,t2,t3;

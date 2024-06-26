@@ -172,6 +172,7 @@ struct LidarMeasureGroup
         is_lidar_end = false;
         this->lidar.reset(new PointCloudXYZI());
         std::deque<struct MeasureGroup> ().swap(this->measures);
+        //统计当前点在当前点云中的index
         lidar_scan_index_now = 0;
         last_update_time = 0.0;
     };
