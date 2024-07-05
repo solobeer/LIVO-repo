@@ -91,6 +91,8 @@ generate_messages(
 )
 
 catkin_package(
+  CATKIN_DEPENDS message_runtime
+  
   CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy std_msgs message_runtime cv_bridge image_transport vikit_common vikit_ros
   DEPENDS EIGEN3 PCL OpenCV Sophus
   INCLUDE_DIRS include

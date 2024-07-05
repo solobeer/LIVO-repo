@@ -43,6 +43,7 @@ public:
   int                           id_;                    //!< Unique id of the frame.
   // double                        timestamp_;             //!< Timestamp of when the image was recorded.
   vk::AbstractCamera*           cam_;                   //!< Camera model.
+ //T_f_w_ 相机坐标系对世界坐标原地的姿态和位置，是每次IMU predict更新的
   SE3                           T_f_w_;                 //!< Transform (f)rame from (w)orld.
   Matrix<double, 6, 6>          Cov_;                   //!< Covariance.
   ImgPyr                        img_pyr_;               //!< Image Pyramid.

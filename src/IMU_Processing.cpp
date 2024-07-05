@@ -677,7 +677,9 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
   IMUpose.push_back(set_pose6d(0.0, acc_s_last, angvel_last, state_inout.vel_end, state_inout.pos_end, state_inout.rot_end));
 
   /*** forward propagation at each imu point ***/
+  //上一次的加速度_imu, 角速度平均值，加速度平均值，速度IMU，位置imu。
   V3D acc_imu(acc_s_last), angvel_avr(angvel_last), acc_avr, vel_imu(state_inout.vel_end), pos_imu(state_inout.pos_end);
+  //上一次的旋转矩阵
   M3D R_imu(state_inout.rot_end);
   MD(DIM_STATE, DIM_STATE) F_x, cov_w;
   
@@ -704,6 +706,7 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
     // #endif
 
     angvel_avr -= state_inout.bias_g;
+    //这里加速度用的是归一化了
     acc_avr     = acc_avr * G_m_s2 / mean_acc.norm() - state_inout.bias_a;
 
     if(head->header.stamp.toSec() < last_lidar_end_time_)
@@ -711,12 +714,13 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
       dt = tail->header.stamp.toSec() - last_lidar_end_time_;
     }
     else
-    {
+    {//正常应该是走这个分支
       dt = tail->header.stamp.toSec() - head->header.stamp.toSec();
     }
     
     /* covariance propagation */
     M3D acc_avr_skew;
+    //IMU的姿态变化
     M3D Exp_f   = Exp(angvel_avr, dt);
     acc_avr_skew<<SKEW_SYM_MATRX(acc_avr);
 
@@ -731,6 +735,7 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
     F_x.block<3,3>(6,12) = - R_imu * dt;
     F_x.block<3,3>(6,15) = Eye3d * dt;
 
+    //这里cov_w感觉像是每次加上系统误差，就是实际IMU的cov
     cov_w.block<3,3>(0,0).diagonal()   = cov_gyr * dt * dt;
     cov_w.block<3,3>(6,6)              = R_imu * cov_acc.asDiagonal() * R_imu.transpose() * dt * dt;
     cov_w.block<3,3>(9,9).diagonal()   = cov_bias_gyr * dt * dt; // bias gyro covariance
@@ -739,15 +744,19 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
     state_inout.cov = F_x * state_inout.cov * F_x.transpose() + cov_w;
 
     /* propogation of IMU attitude */
+    //更新到R_imu上，这里应该是相对世界坐标系的姿态
     R_imu = R_imu * Exp_f;
 
     /* Specific acceleration (global frame) of IMU */
+    //世界坐标系下的加速度
     acc_imu = R_imu * acc_avr + state_inout.gravity;
 
     /* propogation of IMU */
+    //用IMU更新世界坐标系下的pos, pos vel用的还是上一次的。
     pos_imu = pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt;
 
     /* velocity of IMU */
+    //用IMU更新世界坐标系下的vel
     vel_imu = vel_imu + acc_imu * dt;
 
     /* save the poses at each IMU measurements */
@@ -759,6 +768,7 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
   }
 
   //计算一帧结束时的pos和角度预测
+  //这里已经更新state了
   /*** calculated the pos and attitude prediction at the frame-end ***/
   if (imu_end_time>pcl_beg_time)
   {

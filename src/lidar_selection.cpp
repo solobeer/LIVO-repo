@@ -155,6 +155,7 @@ void LidarSelector::getpatch(cv::Mat img, V2D pc, float* patch_tmp, int level)
 //把一个grid内最高梯度的点加入视觉地图
 void LidarSelector::addSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg) 
 {
+    //其实相当于在这里改代码
     // double t0 = omp_get_wtime();
     reset_grid();
 
@@ -167,6 +168,7 @@ void LidarSelector::addSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
         V3D pt(pg->points[i].x, pg->points[i].y, pg->points[i].z);
         //相机坐标系
         //这里pc只是一个二维变量，跟像素没关系。
+        // 把雷达世界点转到相机坐标下的点，这里用的SE3是通过前面的IMU update的。
         V2D pc(new_frame_->w2c(pt));
         //40 * 40的网格，检查是否在相机视野内，考虑边缘内40为边界，因为雷达投过去不一定在图像中
         if(new_frame_->cam_->isInFrame(pc.cast<int>(), (patch_size_half+1)*8)) // 20px is the patch size in the matcher
@@ -211,6 +213,7 @@ void LidarSelector::addSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
             //pc换到单位球中的坐标
             Vector3d f = cam->cam2world(pc);
             //创建一个新的feature，level是0层，把pose赋值了,patch也关联了
+            //一个视觉世界点point，关联了当前图像的一块patch，以pc为中心，同时有这个
             FeaturePtr ftr_new(new Feature(patch, pc, f, new_frame_->T_f_w_, map_value[i], 0));
             //把feature的img设置
             ftr_new->img = new_frame_->img_pyr_[0];
@@ -383,6 +386,7 @@ void LidarSelector::createPatchFromPatchWithBorder(float* patch_with_border, flo
   }
 }
 //pg难道是最近的雷达点，或者简称为上一帧雷达点。
+//这里找地图点，应该不用改
 void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
 {
     //unordered_map<VOXEL_KEY, VOXEL_POINTS*> feat_map
@@ -614,6 +618,7 @@ void LidarSelector::addFromSparseMap(cv::Mat img, PointCloudXYZI::Ptr pg)
             Matrix2d A_cur_ref_zero;
 
             auto iter_warp = Warp_map.find(ref_ftr->id_);
+            //第一次肯定没有
             if(iter_warp != Warp_map.end())
             {
                 search_level = iter_warp->second->search_level;
@@ -827,6 +832,7 @@ void LidarSelector::FeatureAlignment(cv::Mat img)
     }
 }
 
+//这里应该也要改，把用于计算J的色块选取方法变了。
 float LidarSelector::UpdateState(cv::Mat img, float total_residual, int level) 
 {
     int total_points = sub_sparse_map->index.size();
@@ -1007,7 +1013,7 @@ float LidarSelector::UpdateState(cv::Mat img, float total_residual, int level)
 //获取相机坐标系相对于世界坐标系的旋转矩阵和位移向量，这里IMU已经在点云去畸变的时候加入state了
 void LidarSelector::updateFrameState(StatesGroup state)
 {
-    //此时姿态
+    //此时body相对世界原点姿态
     M3D Rwi(state.rot_end);
     V3D Pwi(state.pos_end);
     Rcw = Rci * Rwi.transpose();

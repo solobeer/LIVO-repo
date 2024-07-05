@@ -65,6 +65,8 @@
 #include <opencv2/opencv.hpp>
 #include <vikit/camera_loader.h>
 #include"lidar_selection.h"
+#include "fast_livo/States.h"
+#include "fast_livo/Pose6D.h"
 
 #ifdef USE_ikdtree
     #ifdef USE_ikdforest
@@ -1167,6 +1169,10 @@ void readParameters(ros::NodeHandle &nh)
     nh.param<double>("ncc_thre", ncc_thre, 100);
 }
 
+    ros::Publisher pub_predict_state;
+    ros::Publisher pub_update_state;
+    ros::Publisher pub_err_vec;
+
 int main(int argc, char** argv)
 {
     ros::init(argc, argv, "laserMapping");
@@ -1175,6 +1181,9 @@ int main(int argc, char** argv)
     readParameters(nh);
     cout<<"debug:"<<debug<<" MIN_IMG_COUNT: "<<MIN_IMG_COUNT<<endl;
     pcl_wait_pub->clear();
+
+    pub_err_vec = nh.advertise<nav_msgs::Odometry>("/predict_state", 10);
+
     // pcl_visual_wait_pub->clear();
     ros::Subscriber sub_pcl = p_pre->lidar_type == AVIA ? \
         nh.subscribe(lid_topic, 200000, livox_pcl_cbk) : \
@@ -1438,6 +1447,17 @@ int main(int argc, char** argv)
                 //发布视觉相关话题
                 publish_frame_world_rgb(pubLaserCloudFullResRgb, lidar_selector);
                 publish_visual_world_sub_map(pubSubVisualCloud);
+
+                auto vec = state_propagat.pos_end - state.pos_end;
+                nav_msgs::Odometry odometry;
+                odometry.header.stamp = ros::Time::now();
+                odometry.header.frame_id = "world";
+                odometry.child_frame_id = "camera_init";
+                odometry.pose.pose.position.x = vec.x();
+                odometry.pose.pose.position.y = vec.y();
+                odometry.pose.pose.position.z = vec.z();
+                // lidar_selector->statesToMsg(odometry, vec);
+                pub_err_vec.publish(odometry);
                 
                 // *map_cur_frame_point = *pcl_wait_pub;
                 // mtx_buffer_pointcloud.unlock();

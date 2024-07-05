@@ -6,7 +6,7 @@ filter_size_surf : 0.15
 filter_size_map : 0.3
 cube_side_length : 20
 debug : 0
-grid_size : 40
+grid_size : 20
 patch_size : 8
 img_enable : 1
 lidar_enable : 0

@@ -138,6 +138,7 @@ bool Point::getClosePose(const FramePtr& new_frame, FeaturePtr& ftr) const
   return true;
 }
 
+//找到角度变化最小的一个历史Feature
 bool Point::getCloseViewObs(const Vector3d& framepos, FeaturePtr& ftr, const Vector2d& cur_px) const
 {
   // TODO: get frame with same point of view AND same pyramid level!

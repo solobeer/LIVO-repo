@@ -15,6 +15,10 @@
 #include <pcl/filters/voxel_grid.h>
 #include <set>
 
+#include "fast_livo/States.h"
+#include "fast_livo/Pose6D.h"
+#include "nav_msgs/Odometry.h"
+
 namespace lidar_selection {
 
 class LidarSelector {
@@ -40,7 +44,9 @@ class LidarSelector {
     SubSparseMap* sub_sparse_map;
     double fx,fy,cx,cy;
     bool ncc_en;
-    int debug, patch_size, patch_size_total, patch_size_half;
+    int debug, patch_size, patch_size_half;
+    //8 * 8 = 64
+    int patch_size_total;
     int count_img, MIN_IMG_COUNT;
     int NUM_MAX_ITERATIONS;
     vk::robust_cost::WeightFunctionPtr weight_function_;
