@@ -135,8 +135,8 @@ void Preprocess::avia_handler(const livox_ros_driver::CustomMsg::ConstPtr &msg)
             || (abs(msg->points[i].y - msg->points[i-1].y) < 1e-8)
             || (abs(msg->points[i].z - msg->points[i-1].z) < 1e-8)
             || (msg->points[i].x * msg->points[i].x + msg->points[i].y * msg->points[i].y < blind)
-            || (msg->points[i].line > N_SCANS)
-            || ((msg->points[i].tag & 0x30) != RETURN0AND1))
+            || (msg->points[i].line > N_SCANS))
+            // || ((msg->points[i].tag & 0x30) != RETURN0AND1))
         {
             continue;
         }

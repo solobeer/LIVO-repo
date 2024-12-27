@@ -144,13 +144,16 @@ bool Point::getCloseViewObs(const Vector3d& framepos, FeaturePtr& ftr, const Vec
   // TODO: get frame with same point of view AND same pyramid level!
   if(obs_.size() <= 0) return false;
 
+  //当前帧原点与地图点的距离
   Vector3d obs_dir(framepos - pos_); obs_dir.normalize();
   auto min_it=obs_.begin();
   double min_cos_angle = 0;
-
+  //it是这个地图点对应的多个时刻的相机观察
   for(auto it=obs_.begin(), ite=obs_.end(); it!=ite; ++it)
   {
+    //地图点与该时刻相机原点距离
     Vector3d dir((*it)->T_f_w_.inverse().translation() - pos_); dir.normalize();
+    //单位向量点积就是夹角余弦cos，返回与当前帧夹角最小的一帧。
     double cos_angle = obs_dir.dot(dir);
     if(cos_angle > min_cos_angle)
     {

@@ -68,6 +68,9 @@
 #include "fast_livo/States.h"
 #include "fast_livo/Pose6D.h"
 
+#include <message_filters/subscriber.h>  
+#include <message_filters/time_synchronizer.h>  
+
 #ifdef USE_ikdtree
     #ifdef USE_ikdforest
     #include <ikd-Forest/ikd_Forest.h>
@@ -137,6 +140,9 @@ int debug = 0;
 bool fast_lio_is_ready = false;
 int grid_size, patch_size;
 double outlier_threshold, ncc_thre;
+
+int lidar_cnt = 1;
+int img_cnt = 1;
 
 vector<BoxPointType> cub_needrm;
 vector<BoxPointType> cub_needad;
@@ -455,6 +461,7 @@ void livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg)
         ROS_ERROR("lidar loop back, clear buffer");
         lidar_buffer.clear();
     }
+    ROS_ERROR("lidar_cnt = %d", lidar_cnt++);
     printf("[ INFO ]: get point cloud at time: %.6f.\n", msg->header.stamp.toSec());
     PointCloudXYZI::Ptr ptr(new PointCloudXYZI());
     // 把livox数据转成pcl点云
@@ -495,41 +502,82 @@ void imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in)
     sig_buffer.notify_all();
 }
 
-cv::Mat getImageFromMsg(const sensor_msgs::ImageConstPtr& img_msg) {
+// cv::Mat getImageFromMsg(const sensor_msgs::ImageConstPtr& img_msg) {
+cv::Mat getImageFromMsg(const sensor_msgs::CompressedImageConstPtr& img_msg) {
   cv::Mat img;
   img = cv_bridge::toCvCopy(img_msg, "bgr8")->image;
   return img;
 }
 
-void img_cbk(const sensor_msgs::ImageConstPtr& msg)
-{
-    // cout<<"In Img_cbk"<<endl;
-    // if (first_img_time<0 && time_buffer.size()>0) {
-    //     first_img_time = msg->header.stamp.toSec() - time_buffer.front();
-    // }
+// void img_cbk(const sensor_msgs::ImageConstPtr& msg)
+// {
+//     // cout<<"In Img_cbk"<<endl;
+//     // if (first_img_time<0 && time_buffer.size()>0) {
+//     //     first_img_time = msg->header.stamp.toSec() - time_buffer.front();
+//     // }
+//     if (!img_en) 
+//     {
+//         return;
+//     }
+//     ROS_ERROR("img_cnt = %d", img_cnt++);
+//     printf("[ INFO ]: get img at time: %.6f.\n", msg->header.stamp.toSec());
+//     if (msg->header.stamp.toSec() < last_timestamp_img)
+//     {
+//         ROS_ERROR("img loop back, clear buffer");
+//         img_buffer.clear();
+//         img_time_buffer.clear();
+//     }
+//     mtx_buffer.lock();
+//     // cout<<"Lidar_buff.size()"<<lidar_buffer.size()<<endl;
+//     // cout<<"Imu_buffer.size()"<<imu_buffer.size()<<endl;
+//     //转换为mat格式
+//     img_buffer.push_back(getImageFromMsg(msg));
+//     img_time_buffer.push_back(msg->header.stamp.toSec());
+//     last_timestamp_img = msg->header.stamp.toSec();
+//     // cv::imshow("img", img);
+//     // cv::waitKey(1);
+//     // cout<<"last_timestamp_img:::"<<last_timestamp_img<<endl;
+//     mtx_buffer.unlock();
+//     sig_buffer.notify_all();
+// }
+
+void callback(const sensor_msgs::CompressedImageConstPtr& msg_img, const livox_ros_driver::CustomMsg::ConstPtr &msg_lidar) {
+    mtx_buffer.lock();
+    ROS_ERROR("lidar_cnt = %d", lidar_cnt++);
+    if (msg_lidar->header.stamp.toSec() < last_timestamp_lidar)
+    {
+        ROS_ERROR("lidar loop back, clear buffer");
+        lidar_buffer.clear();
+    }
+    printf("[ INFO ]: get point cloud at time: %.6f.\n", msg_lidar->header.stamp.toSec());
+    PointCloudXYZI::Ptr ptr(new PointCloudXYZI());
+    // ROS_ERROR("point num = %d",msg->point_num);
+    p_pre->process(msg_lidar, ptr);
+    // ROS_ERROR("point num after = %d", ptr->points.size()); 
+    lidar_buffer.push_back(ptr);
+    time_buffer.push_back(msg_lidar->header.stamp.toSec());
+    last_timestamp_lidar = msg_lidar->header.stamp.toSec();
+
     if (!img_en) 
     {
+        mtx_buffer.unlock();
+        sig_buffer.notify_all();
         return;
     }
-    printf("[ INFO ]: get img at time: %.6f.\n", msg->header.stamp.toSec());
-    if (msg->header.stamp.toSec() < last_timestamp_img)
+    ROS_ERROR("img_cnt = %d", img_cnt++);
+    printf("[ INFO ]: get img at time: %.6f.\n", msg_img->header.stamp.toSec());
+    if (msg_img->header.stamp.toSec() < last_timestamp_img)
     {
         ROS_ERROR("img loop back, clear buffer");
         img_buffer.clear();
         img_time_buffer.clear();
     }
-    mtx_buffer.lock();
-    // cout<<"Lidar_buff.size()"<<lidar_buffer.size()<<endl;
-    // cout<<"Imu_buffer.size()"<<imu_buffer.size()<<endl;
-    //转换为mat格式
-    img_buffer.push_back(getImageFromMsg(msg));
-    img_time_buffer.push_back(msg->header.stamp.toSec());
-    last_timestamp_img = msg->header.stamp.toSec();
-    // cv::imshow("img", img);
-    // cv::waitKey(1);
-    // cout<<"last_timestamp_img:::"<<last_timestamp_img<<endl;
+    img_buffer.push_back(getImageFromMsg(msg_img));
+    img_time_buffer.push_back(msg_img->header.stamp.toSec());
+    last_timestamp_img = msg_img->header.stamp.toSec();
+
     mtx_buffer.unlock();
-    sig_buffer.notify_all();
+    sig_buffer.notify_all();   
 }
 
 //第一次为空返回
@@ -539,6 +587,9 @@ bool sync_packages(LidarMeasureGroup &meas)
     if ((lidar_buffer.empty() && img_buffer.empty())) { // has lidar topic or img topic?
         return false;
     }
+    // if (lidar_buffer.size() < 3) {
+    //     return false;
+    // }
     // ROS_ERROR("In sync");
     if (meas.is_lidar_end) // If meas.is_lidar_end==true, means it just after scan end, clear all buffer in meas.
     {
@@ -552,7 +603,7 @@ bool sync_packages(LidarMeasureGroup &meas)
             // ROS_ERROR("out sync");
             return false;
         }
-        std::cout << "------lidar_pushed = false--------\n";
+        // std::cout << "------lidar_pushed = false--------\n";
         //最前面的一帧点云
         meas.lidar = lidar_buffer.front(); // push the firsrt lidar topic
         if(meas.lidar->points.size() <= 1)
@@ -574,14 +625,25 @@ bool sync_packages(LidarMeasureGroup &meas)
         //最后点的时间？最后一个点的时间
         lidar_end_time = meas.lidar_beg_time + meas.lidar->points.back().curvature / double(1000); // calc lidar scan end time
         lidar_pushed = true; // flag 放入一帧点云
+        ROS_ERROR("lidar_pushed %d", lidar_pushed);
+        ROS_ERROR("lidar_beg_time: %.6f, lidar_end_time: %.6f", meas.lidar_beg_time, lidar_end_time);
     }
+    // if (!img_buffer.empty() && (img_time_buffer.front() < meas.lidar_beg_time) ) {
+    //     mtx_buffer.lock();
+    //     while(!img_buffer.empty() && (img_time_buffer.front() < meas.lidar_beg_time)) {
+    //         img_time_buffer.pop_front();
+    //         img_buffer.pop_front();
+    //     }
+    //     mtx_buffer.unlock();
+    // }
     //没图像，只有雷达数据，收集IMU信息
     if (img_buffer.empty()) { // no img topic, means only has lidar topic
         if (last_timestamp_imu < lidar_end_time+0.02) { // imu message needs to be larger than lidar_end_time, keep complete propagate.
             // ROS_ERROR("out sync");
             return false;
         }
-        std::cout << "------img_buffer.empty()--------\n";
+        ROS_ERROR("no img");
+        // std::cout << "------img_buffer.empty()--------\n";
         struct MeasureGroup m; //standard method to keep imu message.
         double imu_time = imu_buffer.front()->header.stamp.toSec();
         m.imu.clear();
@@ -617,7 +679,8 @@ bool sync_packages(LidarMeasureGroup &meas)
             // ROS_ERROR("out sync");
             return false;
         }
-        std::cout << "------img_time_buffer.front()>lidar_end_time--------\n";
+        ROS_ERROR("ima time %0.6f, lidar_end_time = %.6f", img_time_buffer.front(), lidar_end_time);
+        ROS_ERROR("has img");
         double imu_time = imu_buffer.front()->header.stamp.toSec();
         m.imu.clear();
         mtx_buffer.lock();
@@ -640,6 +703,7 @@ bool sync_packages(LidarMeasureGroup &meas)
     } //相当于处理目前雷达时间前，每个相机间隔间的IMU信息。
     else 
     {
+        ROS_ERROR("imag_time = %.6f, lidar_being_time = %0.6f,  lidar_end_time = %.6f", img_time_buffer.front() , meas.lidar_beg_time, lidar_end_time);
         double img_start_time = img_time_buffer.front(); // process img topic, record timestamp
         if (last_timestamp_imu < img_start_time) 
         {
@@ -653,13 +717,17 @@ bool sync_packages(LidarMeasureGroup &meas)
         m.img_offset_time = img_start_time - meas.lidar_beg_time; // record img offset time, it shoule be the Kalman update timestamp.
         m.img = img_buffer.front();
         mtx_buffer.lock();
+        ROS_ERROR("imu_buffer if empty = %d", imu_buffer.empty());
+        ROS_ERROR("imu_time = %.6f, img_start_time = %.6f", imu_time, img_start_time);
         while ((!imu_buffer.empty() && (imu_time<img_start_time))) 
         {
             imu_time = imu_buffer.front()->header.stamp.toSec();
+            ROS_ERROR("imu_time = %.6f", imu_time);
             if(imu_time > img_start_time) break;
             m.imu.push_back(imu_buffer.front());
             imu_buffer.pop_front();
         }
+        ROS_ERROR("imu_size = %d", m.imu.size());
         img_buffer.pop_front();
         img_time_buffer.pop_front();
         mtx_buffer.unlock();
@@ -1002,8 +1070,8 @@ void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_
 
     /** closest surface search and residual computation **/
     #ifdef MP_EN
-        omp_set_num_threads(MP_PROC_NUM);
-        #pragma omp parallel for
+        // omp_set_num_threads(MP_PROC_NUM);
+        // #pragma omp parallel for
     #endif
     for (int i = 0; i < feats_down_size; i++)
     {
@@ -1185,11 +1253,19 @@ int main(int argc, char** argv)
     pub_err_vec = nh.advertise<nav_msgs::Odometry>("/predict_state", 10);
 
     // pcl_visual_wait_pub->clear();
-    ros::Subscriber sub_pcl = p_pre->lidar_type == AVIA ? \
-        nh.subscribe(lid_topic, 200000, livox_pcl_cbk) : \
+    // ros::Subscriber sub_pcl = p_pre->lidar_type == AVIA ? \
+    //     nh.subscribe(lid_topic, 200000, livox_pcl_cbk) : \
         nh.subscribe(lid_topic, 200000, standard_pcl_cbk);
     ros::Subscriber sub_imu = nh.subscribe(imu_topic, 200000, imu_cbk);
-    ros::Subscriber sub_img = nh.subscribe(img_topic, 200000, img_cbk);
+    // ros::Subscriber sub_img = nh.subscribe(img_topic, 200000, img_cbk);
+
+    message_filters::Subscriber<sensor_msgs::CompressedImage> image_sub(nh,  img_topic, 1);
+    message_filters::Subscriber<livox_ros_driver::CustomMsg> pointcloud_sub(nh, lid_topic, 1);
+    // message_filters::Subscriber<sensor_msgs::Imu>
+    // TimeSynchronizer<sensor_msgs::Image, livox_ros_driver::CustomMsg> sync(image_sub, pointcloud_sub, 10);
+    message_filters::TimeSynchronizer<sensor_msgs::CompressedImage, livox_ros_driver::CustomMsg> sync(image_sub, pointcloud_sub, 10);
+
+    sync.registerCallback(boost::bind(&callback, _1, _2));
     image_transport::Publisher img_pub = it.advertise("/rgb_img", 1);
     ros::Publisher pubLaserCloudFullRes = nh.advertise<sensor_msgs::PointCloud2>
             ("/cloud_registered", 100);
@@ -1217,6 +1293,7 @@ int main(int argc, char** argv)
 
     /*** variables definition ***/
     #ifndef USE_IKFOM
+    std::cout << "use+ikfom" << std::endl;
     VD(DIM_STATE) solution;
     MD(DIM_STATE, DIM_STATE) G, H_T_H, I_STATE;
     V3D rot_add, t_add;
@@ -1541,7 +1618,7 @@ int main(int argc, char** argv)
             <<" "<<state_point.bg.transpose()<<" "<<state_point.ba.transpose()<<" "<<state_point.grav<< endl;
             #else
             fout_pre << setw(20) << LidarMeasures.last_update_time  - first_lidar_time << " " << euler_cur.transpose()*57.3 << " " << state.pos_end.transpose() << " " << state.vel_end.transpose() \
-            <<" "<<state.bias_g.transpose()<<" "<<state.bias_a.transpose()<<" "<<state.gravity.transpose()<< endl;
+            <<" "<<state.bias_g.transpose() << " "<<state.bias_a.transpose()<<" "<<state.gravity.transpose()<< endl;
             #endif
         }
 
@@ -1587,9 +1664,9 @@ int main(int argc, char** argv)
 
         if(img_en)
         {
-            omp_set_num_threads(MP_PROC_NUM);
-            #pragma omp parallel for
-            for(int i=0;i<1;i++) {}
+            // omp_set_num_threads(MP_PROC_NUM);
+            // #pragma omp parallel for
+            // for(int i=0;i<1;i++) {}
         }
 
         //用雷达点云做状态更新
@@ -1609,8 +1686,8 @@ int main(int argc, char** argv)
 
                 /** closest surface search and residual computation **/
                 #ifdef MP_EN
-                    omp_set_num_threads(MP_PROC_NUM);
-                    #pragma omp parallel for
+                    // omp_set_num_threads(MP_PROC_NUM);
+                    // #pragma omp parallel for
                 #endif
                 // normvec->resize(feats_down_size);
                 //遍历新的一帧下采样后的点云

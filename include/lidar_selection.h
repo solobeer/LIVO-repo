@@ -35,6 +35,9 @@ class LidarSelector {
     int* map_index;
     float* map_dist;
     float* map_value;
+    float* display_lidar_map_value;
+    float* visual_score;
+    float* point_distance;
     float* patch_cache;
     float* patch_with_border_;
     int width, height, grid_n_width, grid_n_height;
@@ -51,7 +54,9 @@ class LidarSelector {
     int NUM_MAX_ITERATIONS;
     vk::robust_cost::WeightFunctionPtr weight_function_;
     float weight_scale_;
-    double img_point_cov, outlier_threshold, ncc_thre;
+    //100
+    double img_point_cov;
+    double outlier_threshold, ncc_thre;
     size_t n_meas_;                //!< Number of measurements
     deque< PointPtr > map_cur_frame_;
     deque< PointPtr > sub_map_cur_frame_;
@@ -107,6 +112,8 @@ class LidarSelector {
     void AddPoint(PointPtr pt_new);
     int getBestSearchLevel(const Matrix2d& A_cur_ref, const int max_level);
     void display_keypatch(double time);
+    void display_visaul_select_point(double time);
+    void display_lidar_select_point();
     void updateFrameState(StatesGroup state);
     V3F getpixel(cv::Mat img, V2D pc);
 
@@ -133,6 +140,8 @@ class LidarSelector {
     set<VOXEL_KEY> sub_postion;
     vector<PointPtr> voxel_points_;
     vector<V3D> add_voxel_points_;
+    vector<V2D> visual_points_;
+    vector<V2D> display_lidar_points_;
 
 
     cv::Mat img_cp, img_rgb;
